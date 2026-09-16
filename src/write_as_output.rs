@@ -24,8 +24,8 @@ where
     pub fn write_async<'f>(
         &'f mut self,
         source: &'f [MaybeUninit<u8>],
-    ) -> OutputWriteAsync<'f, W> {
-        OutputWriteAsync(self.0, source)
+    ) -> OutputWriteAsync<'f, 'f, W> {
+        OutputWriteAsync::new(self.0, source)
     }
 }
 
@@ -33,7 +33,7 @@ impl<'a, W> TrOutput<u8> for WriteAsOutput<'a, W>
 where
     W: tokio::io::AsyncWrite + Unpin,
 {
-    type WriteAsync<'f> = OutputWriteAsync<'f, W> where Self: 'f, u8: 'f;
+    type WriteAsync<'f> = OutputWriteAsync<'f, 'f, W> where Self: 'f, u8: 'f;
     type Err = TaggedError<std::io::Error, WriteErrTag>;
 
     #[inline]
@@ -45,15 +45,15 @@ where
     }
 }
 
-#[gen_may_cancel_future(OutputWrite)]
+#[gen_may_cancel_future(OutputWrite, pub)]
 async fn output_write_impl_async_<'f, W, C>(
     output: &'f mut W,
     source: &'f [MaybeUninit<u8>],
-    _token: &'f mut C,
+    _token: C,
 ) -> SomeOf<usize, TaggedError<std::io::Error, WriteErrTag>>
 where
     W: tokio::io::AsyncWrite + Unpin,
-    C: TrCancellationToken + Clone,
+    C: TrCancellationToken,
 {
     let size = source.len();
     let buff = source.as_ptr() as *const _ as *const u8;

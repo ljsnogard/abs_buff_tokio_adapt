@@ -21,8 +21,8 @@ where
     pub fn read_async<'f>(
         &'f mut self,
         target: &'f mut [MaybeUninit<u8>],
-    ) -> InputReadAsync<'f, R> {
-        InputReadAsync(self.0, target)
+    ) -> InputReadAsync<'f, 'f, R> {
+        InputReadAsync::new(self.0, target)
     }
 }
 
@@ -30,7 +30,7 @@ impl<'a, R> TrInput<u8> for ReadAsInput<'a, R>
 where
     R: tokio::io::AsyncRead + Unpin,
 {
-    type ReadAsync<'f> = InputReadAsync<'f, R> where Self: 'f, u8: 'f;
+    type ReadAsync<'f> = InputReadAsync<'f, 'f, R> where Self: 'f, u8: 'f;
 
     type Err = TaggedError<std::io::Error, ReadErrTag>;
 
@@ -43,15 +43,15 @@ where
     }
 }
 
-#[gen_may_cancel_future(InputRead)]
+#[gen_may_cancel_future(InputRead, pub)]
 async fn input_read_impl_async_<'f, R, C>(
     input: &'f mut R,
     target: &'f mut [MaybeUninit<u8>],
-    _token: &'f mut C,
+    _token: C,
 ) -> SomeOf<usize, TaggedError<std::io::Error, ReadErrTag>>
 where
     R: tokio::io::AsyncRead + Unpin,
-    C: TrCancellationToken + Clone,
+    C: TrCancellationToken,
 {
     let size = target.len();
     let buff = target.as_mut_ptr() as *mut u8;
