@@ -175,3 +175,43 @@ async fn real_tcp_roundtrip_with_adapters() {
     assert_eq!(server_request, b"ping");
     assert_eq!(client_response, b"qjoh");
 }
+
+/// `TrInput` 协议：设备读到 0（EOF）时不允许返回「0 个且无错误」。
+/// - 测试目标：`ReadAsInput` 在底层 `AsyncRead` 结束时，返回的结果必须满足
+///   `abs_buff` 的输入搬移契约（`assert!(cc > 0 || x.contains_right())`，提交
+///   `e4092c8`）——即不能是裸的「0 个」。
+/// - 测试手段：用 `tokio::io::empty()`（立即 EOF）当设备，把 `ReadAsInput` 接到一个
+///   可写段上跑 `move_items_from_input_async`；同时直接观察 `ReadAsInput::read_async`
+///   的返回值。
+/// - 判断：搬移不 panic（当前实现会触发上游断言），且 `read_async` 的结果不是裸的
+///   `Left(0)`。
+#[tokio::test]
+async fn read_as_input_reports_eof_with_error() {
+    let mut dev = tokio::io::empty();
+    let mut input = ReadAsInput::new(&mut dev);
+    let mut target = [MaybeUninit::<u8>::uninit(); 8];
+
+    // 直接看裸结果：EOF 时不能是 `Left(0)`。
+    let raw = input.read_async(&mut target).await;
+    assert!(
+        !matches!(raw.as_ref().pick_left(), Option::Some(&0)) || raw.as_ref().pick_right().is_some(),
+        "TrInput 协议要求 EOF 以错误表达，不能返回裸的 0：{raw:?}"
+    );
+
+    // 再跑一遍段级搬移：旧实现会在这里触发上游断言。
+    let mut storage = [MaybeUninit::<u8>::uninit(); 8];
+    let mut consumed = 0usize;
+    let mut segm = SegmMut::new(
+        &mut storage[..],
+        SegmReclaim::new(Pin::new(&mut consumed)),
+    );
+    let mut input2 = ReadAsInput::new(&mut dev);
+    let res = segm
+        .move_items_from_input_async(&mut input2, &Demand::less_than(8))
+        .may_cancel_with(NonCancellableToken::new())
+        .await;
+    assert!(
+        res.as_ref().pick_right().is_some(),
+        "EOF 应当以错误形式返回：{res:?}"
+    );
+}
