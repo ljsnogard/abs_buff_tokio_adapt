@@ -12,4 +12,6 @@ pub use write_as_output::{WriteAsOutput, OutputWriteAsync, OutputWriteFuture};
 
 pub mod x_deps {
     pub use abs_buff;
+
+    pub use tokio;
 }
